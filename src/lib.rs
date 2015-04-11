@@ -21,6 +21,7 @@ macro_rules! query {
     };
 }
 
+#[macro_export]
 macro_rules! query_from {
     (from $context:pat => $source:expr, $($remainder:tt)+) => {
         query_from!($source, $context => $($remainder)+)
@@ -38,8 +39,49 @@ macro_rules! query_from {
         query_operator!($($tokens)*)
     };
 }
+
+//This is a total hack and may need to be further tested with other patterns (i.e. does not work with nested patterns)
+#[macro_export] 
+macro_rules! query_where_let {
+    ($source:expr, $context:pat => $t:ident($($newContext:ident),*) = $letValue:expr, $($remainder:tt)+) => {
+        {
+            let source = $source.filter_map(|&value| { 
+                let $context = value; 
+                if let $t($($newContext),*) = $letValue { 
+                    Some((value, ($($newContext),*, ()))) 
+                } 
+                else {
+                    None
+                }
+            });
+            
+            query!(source, ($context, ($($newContext),*, ())) => $($remainder)+)
+        }
+    };
+    
+    ($source:expr, $context:pat => $t:ident = $letValue:expr, $($remainder:tt)+) => {
+        {
+            let source = $source.filter_map(|&value| { 
+                let $context = value; 
+                if let $t = $letValue { 
+                    Some(value) 
+                } 
+                else {
+                    None
+                }
+            });
+            
+            query!(source, $context => $($remainder)+)
+        }
+    };
+}
  
+#[macro_export]
 macro_rules! query_operator {
+    ($source:expr, $context:pat => where let $($remainder:tt)+) => {
+        query_where_let!($source, $context => $($remainder)+)
+    };
+
     ($source:expr, $context:pat => where $filter:expr, $($remainder:tt)+) => {
         {
             let source = $source.filter(|&$context| { $filter });
@@ -49,8 +91,19 @@ macro_rules! query_operator {
 
     ($source:expr, $context:pat => let $newContext:pat = $letValue:expr, $($remainder:tt)+) => {
         {
-            let source = $source.map(|value| { let $context = value; (value, $letValue) });
+            let source = $source.map(|value| { 
+                let $context = value;
+                (value, $letValue) 
+            });
+            
             query!(source, ($context, $newContext) => $($remainder)+)
+        }
+    };
+    
+    ($source:expr, $context:pat => do $action:stmt, $($remainder:tt)+) => {
+        {
+            let source = $source.inspect(|$context| { $action; });
+            query!(source, $context => $($remainder)+)
         }
     };
     
@@ -58,120 +111,16 @@ macro_rules! query_operator {
         {
             query_from!($source, $context => from $($remainder)+)
         }
-    };
-    
+    };  
+
     ($($tokens:tt)*) => {
         query_end!($($tokens)*)
     };
 }
 
+#[macro_export]
 macro_rules! query_end {
     ($source:expr, $context:pat => select $selector:expr) => {
         $source.map(|$context| { $selector })
     };
-}
-
-#[test]
-fn where_clause_should_remove_filtered_items() {
-    let source = vec! [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-
-    let result = query! { from x => source.into_iter(),
-                          where x % 2 == 0,
-                          select x };
-
-    let expected = vec! [2, 4, 6, 8, 10];
- 
-    for (i, x) in result.enumerate() {
-        assert_eq!(x, expected[i]);
-    }
-}
-
-#[test]
-fn where_clause_should_be_able_to_take_closure() {
-    let source = vec! [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
-
-    let threshold = 3;
-    
-    let result = query! { from x => source.into_iter(),
-                          where x > threshold,
-                          select x };
-
-    let expected = vec! [4, 5, 6, 7, 8, 9, 10];
- 
-    for (i, x) in result.enumerate() {
-        assert_eq!(x, expected[i]);
-    }
-}
-
-#[allow(unused_variables)]
-#[test]
-fn let_clause_should_introduce_new_context() {
-    let result = query! { from x => (0..10).zip(0..10),
-                          let (a, b) = x,
-                          select a*b };
-
-    let expected = vec! [0, 1, 4, 9, 16, 25, 36, 49, 64, 81];
- 
-    for (i, x) in result.enumerate() {
-        assert_eq!(x, expected[i]);
-    }
-}
-
-#[allow(unused_variables)]
-#[test]
-fn let_clause_should_be_able_to_take_closure() {
-    let multiplier = 2;
-
-    let result = query! { from x => (0..5),
-                          let a = x * multiplier,
-                          select a };
-
-    let expected = vec! [0, 2, 4, 6, 8];
- 
-    for (i, x) in result.enumerate() {
-        assert_eq!(x, expected[i]);
-    }
-}
-
-#[test]
-fn from_clause_should_allow_patterns() {
-    let result = query! { from (a, b) => (0..5).zip(0..5),
-                          select a * b };
-                          
-    let expected = [0, 1, 4, 9, 16];
-    
-    for (i, x) in result.enumerate() {
-        assert_eq!(x, expected[i]);
-    } 
-}
-
-#[test]
-fn multiple_from_clauses_should_flat_map() {
-    let input = [[0, 1], [2, 3], [4, 5]];
-
-    let result = query! { from xs => input.iter(),
-                          from &y => xs.iter(),
-                          select y };
-
-    let expected = vec! [0, 1, 2, 3, 4, 5];
- 
-    for (i, x) in result.enumerate() {
-        assert_eq!(x, expected[i]);
-    }
-}
-
-#[test]
-fn an_operator_between_from_clauses_should_flat_map_the_result_of_the_operator() {
-    let input = vec![vec! [0], vec! [1, 2], vec! [3, 4, 5]];
-
-    let result = query! { from xs => input.iter(),
-                          where xs.len() > 1,
-                          from &y => xs.iter(),
-                          select y };
-
-    let expected = vec! [1, 2, 3, 4, 5];
- 
-    for (i, x) in result.enumerate() {
-        assert_eq!(x, expected[i]);
-    }
 }
