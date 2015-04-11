@@ -34,16 +34,24 @@ macro_rules! query {
 #[macro_export]
 macro_rules! query_from {
     (from $context:pat => $source:expr, $($remainder:tt)+) => {
-        query_from!($source, $context => $($remainder)+)
+        query_from!(match_none, $source, $context => $($remainder)+)
     }; 
     
-    ($source:expr, $context:pat => from $newContext:pat => $newSource:expr, $($remainder:tt)+) => {{
+    (match_none, $source:expr, $context:pat => from $newContext:pat => $newSource:expr, $($remainder:tt)+) => {{
         let source = $source.flat_map(|value| {
             let $context = value;
             $newSource 
         });
         
-        query_from!(source, $newContext => $($remainder)+)
+        query_from!(match_none, source, $newContext => $($remainder)+)
+    }};
+    
+    (match_context, $source:expr, $context:pat => from $newContext:pat => $newSource:expr, $($remainder:tt)+) => {{
+        let source = $source.flat_map(|value| {
+            context_match!(value, $context => $newSource.map(|value| { (value, Some(())) }))
+        });
+        
+        query_from!(match_context, source, ($newContext, Some(())) => $($remainder)+)
     }};
     
     ($($tokens:tt)*) => {
@@ -53,31 +61,38 @@ macro_rules! query_from {
 
 #[macro_export]
 macro_rules! query_where {
-    ($source:expr, $context:pat => $filter:expr, $($remainder:tt)+) => {
+    (match_none, $source:expr, $context:pat => $filter:expr, $($remainder:tt)+) => {
         {
             let source = $source.filter(|&$context| { $filter });
-            query!(source, $context => $($remainder)+)
+            query!(match_none, source, $context => $($remainder)+)
+        }
+    };
+    
+    (match_context, $source:expr, $context:pat => $filter:expr, $($remainder:tt)+) => {
+        {
+            let source = $source.filter(|&value| { context_match!(value, $context => $filter) });
+            query!(match_context, source, $context => $($remainder)+)
         }
     };
 }
 
 #[macro_export]
 macro_rules! query_let {
-    ($source:expr, $context:pat => $newContext:pat = $letValue:expr, $($remainder:tt)+) => {
+    (match_none, $source:expr, $context:pat => $newContext:pat = $letValue:expr, $($remainder:tt)+) => {
         {
             let source = $source.map(|value| { 
                 let $context = value;
                 (value, $letValue) 
             });
             
-            query!(source, ($context, $newContext) => $($remainder)+)
+            query!(match_none, source, ($context, $newContext) => $($remainder)+)
         }
     };
 }
 
 #[macro_export] 
 macro_rules! query_where_let {
-    ($source:expr, $context:pat => $newContext:pat = $letValue:expr, $($remainder:tt)+) => {
+    (match_none, $source:expr, $context:pat => $newContext:pat = $letValue:expr, $($remainder:tt)+) => {
         {
             let source = $source.filter_map(|&value| { 
                 let $context = value; 
@@ -96,32 +111,36 @@ macro_rules! query_where_let {
  
 #[macro_export]
 macro_rules! query_operator {
-    ($source:expr, $context:pat => where let $($remainder:tt)+) => {
-        query_where_let!($source, $context => $($remainder)+)
+    ($match_context:ident, $source:expr, $context:pat => where let $($remainder:tt)+) => {
+        query_where_let!($match_context, $source, $context => $($remainder)+)
     };
 
-    ($source:expr, $context:pat => where $($remainder:tt)+) => {
+    ($match_context:ident, $source:expr, $context:pat => where let $($remainder:tt)+) => {
+        query_where_let!($match_context, $source, $context => $($remainder)+)
+    };
+
+    ($match_context:ident, $source:expr, $context:pat => where $($remainder:tt)+) => {
         {
-            query_where!($source, $context => $($remainder)+)
+            query_where!($match_context, $source, $context => $($remainder)+)
         }
     };
 
-    ($source:expr, $context:pat => let $($remainder:tt)+) => {
+    ($match_context:ident, $source:expr, $context:pat => let $($remainder:tt)+) => {
         {
-            query_let!($source, $context => $($remainder)+)
+            query_let!($match_context, $source, $context => $($remainder)+)
         }
     };
     
-    ($source:expr, $context:pat => do $action:stmt, $($remainder:tt)+) => {
+    ($match_context:ident, $source:expr, $context:pat => do $action:stmt, $($remainder:tt)+) => {
         {
             let source = $source.inspect(|$context| { $action; });
-            query!(source, $context => $($remainder)+)
+            query!($match_context, source, $context => $($remainder)+)
         }
     };
     
-    ($source:expr, $context:pat => from $($remainder:tt)+) => {
+    ($match_context:ident, $source:expr, $context:pat => from $($remainder:tt)+) => {
         {
-            query_from!($source, $context => from $($remainder)+)
+            query_from!($match_context, $source, $context => from $($remainder)+)
         }
     };  
 
@@ -131,12 +150,12 @@ macro_rules! query_operator {
 }
 
 #[macro_export]
-macro_rules! query_end {
+macro_rules! query_end {    
     (match_context, $source:expr, $context:pat => select $selector:expr) => {
         $source.map(|value| { context_match!(value, $context => $selector) })
     };
 
-    ($source:expr, $context:pat => select $selector:expr) => {
+    (match_none, $source:expr, $context:pat => select $selector:expr) => {
         $source.map(|$context| { $selector })
     };
 }
