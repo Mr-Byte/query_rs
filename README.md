@@ -1,4 +1,5 @@
 # query_rs
+[![Build Status](https://travis-ci.org/Mr-Byte/query_rs.svg?branch=master)](https://travis-ci.org/Mr-Byte/query_rs)
 
 A library that adds more types of iterators to the collection of iterators provided by the rust standard library while also providing a macro for writing query comprehensions in rust.
 
