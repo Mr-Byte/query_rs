@@ -65,19 +65,20 @@ fn where_clauses_can_follow_where_let() {
     }
 }
 
-//TODO: I need to fix select-many clauses for this to properly work.
-//#[test]
-//fn from_clause_can_follow_where_let() {
-//    let source = vec! [None, Some(vec! [1, 2]), None, Some(vec! [3, 4])];
-//    
-//    let result = query! { from xs => source.into_iter(),
-//                          where let Some(ys) = xs,
-//                          from &y => ys.clone().into_iter(),
-//                          select y };
-//                          
-//    let expected = vec! [ 1, 2, 3, 4 ];
-//    
-//    for (i, x) in result.enumerate() {
-//        assert_eq!(x, expected[i]);
-//    }
-//}
+#[allow(unused_variables)]
+#[test]
+fn from_clause_can_follow_where_let() {
+    let source = vec! [None, Some(()), None, Some(())];
+    let inner_source = [1, 2, 3, 4];
+    
+    let result = query! { from xs => source.iter(),
+                          where let Some(()) = xs,
+                          from &y => inner_source.iter(),
+                          select y };
+                          
+    let expected = vec! [ 1, 2, 3, 4, 1, 2, 3, 4 ];
+    
+    for (i, x) in result.enumerate() {
+        assert_eq!(x, expected[i]);
+    }
+}
