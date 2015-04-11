@@ -15,6 +15,16 @@
 //
 
 #[macro_export]
+macro_rules! context_match {
+    ($value:expr, $context:pat => $result:expr) => {
+        match $value {
+            $context => $result,
+            _ => panic!("Unexpected pattern context.")
+        }
+    }
+}
+
+#[macro_export]
 macro_rules! query {
     ($($tokens:tt)*) => {
         query_from!($($tokens)*)
@@ -32,6 +42,7 @@ macro_rules! query_from {
             let $context = value;
             $newSource 
         });
+        
         query_from!(source, $newContext => $($remainder)+)
     }};
     
@@ -40,38 +51,45 @@ macro_rules! query_from {
     };
 }
 
-//This is a total hack and may need to be further tested with other patterns (i.e. does not work with nested patterns)
-#[macro_export] 
-macro_rules! query_where_let {
-    ($source:expr, $context:pat => $t:ident($($newContext:ident),*) = $letValue:expr, $($remainder:tt)+) => {
+#[macro_export]
+macro_rules! query_where {
+    ($source:expr, $context:pat => $filter:expr, $($remainder:tt)+) => {
         {
-            let source = $source.filter_map(|&value| { 
-                let $context = value; 
-                if let $t($($newContext),*) = $letValue { 
-                    Some((value, ($($newContext),*, ()))) 
-                } 
-                else {
-                    None
-                }
-            });
-            
-            query!(source, ($context, ($($newContext),*, ())) => $($remainder)+)
+            let source = $source.filter(|&$context| { $filter });
+            query!(source, $context => $($remainder)+)
         }
     };
-    
-    ($source:expr, $context:pat => $t:ident = $letValue:expr, $($remainder:tt)+) => {
+}
+
+#[macro_export]
+macro_rules! query_let {
+    ($source:expr, $context:pat => $newContext:pat = $letValue:expr, $($remainder:tt)+) => {
+        {
+            let source = $source.map(|value| { 
+                let $context = value;
+                (value, $letValue) 
+            });
+            
+            query!(source, ($context, $newContext) => $($remainder)+)
+        }
+    };
+}
+
+#[macro_export] 
+macro_rules! query_where_let {
+    ($source:expr, $context:pat => $newContext:pat = $letValue:expr, $($remainder:tt)+) => {
         {
             let source = $source.filter_map(|&value| { 
                 let $context = value; 
-                if let $t = $letValue { 
-                    Some(value) 
+                if let $newContext = $letValue { 
+                    Some((value, $letValue)) 
                 } 
                 else {
                     None
                 }
             });
             
-            query!(source, $context => $($remainder)+)
+            query!(match_context, source, ($context, $newContext) => $($remainder)+)
         }
     };
 }
@@ -82,21 +100,15 @@ macro_rules! query_operator {
         query_where_let!($source, $context => $($remainder)+)
     };
 
-    ($source:expr, $context:pat => where $filter:expr, $($remainder:tt)+) => {
+    ($source:expr, $context:pat => where $($remainder:tt)+) => {
         {
-            let source = $source.filter(|&$context| { $filter });
-            query!(source, $context => $($remainder)+)
+            query_where!($source, $context => $($remainder)+)
         }
     };
 
-    ($source:expr, $context:pat => let $newContext:pat = $letValue:expr, $($remainder:tt)+) => {
+    ($source:expr, $context:pat => let $($remainder:tt)+) => {
         {
-            let source = $source.map(|value| { 
-                let $context = value;
-                (value, $letValue) 
-            });
-            
-            query!(source, ($context, $newContext) => $($remainder)+)
+            query_let!($source, $context => $($remainder)+)
         }
     };
     
@@ -120,6 +132,10 @@ macro_rules! query_operator {
 
 #[macro_export]
 macro_rules! query_end {
+    (match_context, $source:expr, $context:pat => select $selector:expr) => {
+        $source.map(|value| { context_match!(value, $context => $selector) })
+    };
+
     ($source:expr, $context:pat => select $selector:expr) => {
         $source.map(|$context| { $selector })
     };
