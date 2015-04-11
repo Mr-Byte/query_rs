@@ -115,10 +115,6 @@ macro_rules! query_operator {
         query_where_let!($match_context, $source, $context => $($remainder)+)
     };
 
-    ($match_context:ident, $source:expr, $context:pat => where let $($remainder:tt)+) => {
-        query_where_let!($match_context, $source, $context => $($remainder)+)
-    };
-
     ($match_context:ident, $source:expr, $context:pat => where $($remainder:tt)+) => {
         {
             query_where!($match_context, $source, $context => $($remainder)+)
