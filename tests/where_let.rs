@@ -67,6 +67,23 @@ fn where_clauses_can_follow_where_let() {
 
 #[allow(unused_variables)]
 #[test]
+fn let_clause_can_follow_where_let() {
+    let source = [Some(1), None, Some(3), None, Some(5)];
+    
+    let result = query! { from x => source.iter(),
+                          where let Some(y) = x,
+                          let z = y * 2,
+                          select z };
+                          
+    let expected = vec! [ 2, 6, 10 ];
+    
+    for (i, x) in result.enumerate() {
+        assert_eq!(x, expected[i]);
+    }   
+}
+
+#[allow(unused_variables)]
+#[test]
 fn from_clause_can_follow_where_let() {
     let source = vec! [None, Some(()), None, Some(())];
     let inner_source = [1, 2, 3, 4];

@@ -46,6 +46,8 @@ macro_rules! query_from {
         query_from!(match_none, source, $newContext => $($remainder)+)
     }};
     
+    //NOTE: In order to prevent "refutable pattern" errors potentially caused by where let,
+    // I've added a Some(()) into the context to work around this issue.
     (match_context, $source:expr, $context:pat => from $newContext:pat => $newSource:expr, $($remainder:tt)+) => {{
         let source = $source.flat_map(|value| {
             context_match!(value, $context => $newSource.map(|value| { (value, Some(())) }))
@@ -86,6 +88,16 @@ macro_rules! query_let {
             });
             
             query!(match_none, source, ($context, $newContext) => $($remainder)+)
+        }
+    };
+    
+    (match_context, $source:expr, $context:pat => $newContext:pat = $letValue:expr, $($remainder:tt)+) => {
+        {
+            let source = $source.map(|value| { 
+                context_match!(value, $context => (value, $letValue))
+            });
+            
+            query!(match_context, source, ($context, $newContext) => $($remainder)+)
         }
     };
 }
